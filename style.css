@@ -226,6 +226,19 @@ main {
   color: #657786;
 }
 
+.raw-link {
+  font-size: 12px;
+  color: #1d9bf0;
+  text-decoration: none;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.raw-link:hover {
+  color: #1684c9;
+}
+
 a.reply-count {
   text-decoration: none;
 }
@@ -274,6 +287,13 @@ a.reply-count:hover {
   margin-top: 10px;
 }
 
+.empty-feed {
+  padding: 24px 0;
+  text-align: center;
+  color: #657786;
+  font-style: italic;
+}
+
 .reply-thread {
   margin-top: 20px;
   padding-top: 16px;
@@ -320,4 +340,222 @@ a.reply-count:hover {
 
 .message.inline-generated {
   padding: 12px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: radial-gradient(circle at top, #173f74 0%, #0d1b33 38%, #050b18 70%);
+    color: #e0e9ff;
+  }
+
+  header {
+    background: rgba(3, 9, 23, 0.92);
+    backdrop-filter: blur(18px);
+    color: #f7fbff;
+    padding: 18px 0;
+    font-size: 22px;
+    font-weight: 700;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(2, 6, 23, 0.65);
+  }
+
+  .github-link {
+    color: #70b7ff;
+  }
+
+  .home-link {
+    color: inherit;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+  }
+
+  .home-link:hover {
+    color: #69b3ff;
+  }
+
+  main {
+    max-width: 620px;
+    margin: 48px auto 80px;
+    background: rgba(6, 14, 32, 0.92);
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 40px 80px rgba(1, 5, 16, 0.75);
+    padding: 32px 34px;
+  }
+
+  .feed a,
+  .message a {
+    color: #73c4ff;
+  }
+
+  .feed a:hover,
+  .message a:hover {
+    color: #9ed6ff;
+  }
+
+  .identity {
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .identity input {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    padding: 11px 18px;
+    font-size: 15px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #f2f6ff;
+  }
+
+  .avatar {
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 2px rgba(54, 129, 255, 0.45);
+  }
+
+  .compose-box {
+    background: rgba(14, 23, 48, 0.85);
+    padding: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    margin-bottom: 28px;
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.25);
+  }
+
+  .reply-context {
+    background: rgba(34, 73, 132, 0.4);
+    border: 1px solid rgba(118, 190, 255, 0.35);
+    border-radius: 14px;
+    padding: 10px 14px;
+    color: #ddebff;
+  }
+
+  .reply-context button {
+    color: #73c4ff;
+  }
+
+  .compose-box textarea {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    color: #f7fbff;
+  }
+
+  .compose-box button {
+    background: linear-gradient(135deg, #1c9eff, #2d6bff);
+    padding: 9px 20px;
+    box-shadow: 0 8px 20px rgba(33, 116, 255, 0.45);
+  }
+
+  .compose-box button:hover {
+    background: linear-gradient(135deg, #45a7ff, #4c7dff);
+  }
+
+  .message {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: #eff5ff;
+  }
+
+  .message-header {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .message strong {
+    color: #fbfdff;
+  }
+
+  .pubkey {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .body {
+    color: #e3ecff;
+  }
+
+  .message-reply-ref {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .message-reply-ref a {
+    color: #73c4ff;
+  }
+
+  .message-actions {
+    gap: 12px;
+  }
+
+  .reply-btn {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #9ed6ff;
+  }
+
+  .reply-btn:hover {
+    background: rgba(114, 192, 255, 0.12);
+  }
+
+  .reply-count {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .raw-link {
+    color: #73c4ff;
+  }
+
+  .raw-link:hover {
+    color: #9ed6ff;
+  }
+
+  a.reply-count:hover {
+    color: #9ed6ff;
+  }
+
+  .inline-reply-wrapper {
+    border-left: 2px solid rgba(255, 255, 255, 0.06);
+    padding-left: 12px;
+  }
+
+  .keypair {
+    color: rgba(255, 255, 255, 0.5);
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(12, 22, 46, 0.8);
+  }
+
+  .keypair code {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fdfdff;
+  }
+
+  .feed-container h2 {
+    color: #f2f6ff;
+  }
+
+  .empty-feed {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .reply-thread {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .reply-thread h3 {
+    color: #f8fbff;
+  }
+
+  .reply-thread .reply-children {
+    border-left: 2px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .reply-thread .reply-children .reply-children {
+    border-color: rgba(255, 255, 255, 0.04);
+  }
+
+  .reply-thread .message {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
 }

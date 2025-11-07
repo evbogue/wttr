@@ -26,11 +26,17 @@
       <button id="publishBtn">Publish</button>
     </div>
 
-    <div id="feed"
+    <div
+      id="feed"
       class="feed"
       hx-get="/feed"
-      hx-trigger="load, every 5s, refreshFeed from:body"
-      hx-swap="innerHTML">
+      hx-trigger="load">
+      <section class="feed-container">
+        <h2>bttr feed</h2>
+        <div class="message-list" id="message-list">
+          <div class="empty-feed" id="feed-empty-state"><i>Loading feed...</i></div>
+        </div>
+      </section>
     </div>
   </main>
 

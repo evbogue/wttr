@@ -88,6 +88,56 @@ function updateReplyCountDisplay(target, delta = 0) {
   target.textContent = formatReplyCount(next);
 }
 
+function setReplyCountValue(hash = "", count = 0) {
+  if (!hash) return;
+  const el = document.getElementById(`reply-count-${hash}`);
+  if (!el) return;
+  const value = Math.max(0, Number(count) || 0);
+  el.dataset.count = String(value);
+  el.textContent = formatReplyCount(value);
+}
+
+let latestFeedTimestamp = 0;
+let feedPollTimer = null;
+let feedPollInFlight = false;
+
+function commitLatestTimestamp(ts) {
+  const numeric = Number(ts);
+  if (!Number.isFinite(numeric)) return latestFeedTimestamp;
+  if (numeric <= (latestFeedTimestamp || 0)) return latestFeedTimestamp;
+  latestFeedTimestamp = numeric;
+  const feedEl = document.getElementById("feed");
+  if (feedEl) {
+    feedEl.dataset.latestTs = String(numeric);
+  }
+  if (typeof window !== "undefined") {
+    window.bttrLatestTs = latestFeedTimestamp;
+  }
+  return latestFeedTimestamp;
+}
+
+function updateLatestTimestampFromFeed() {
+  if (typeof document === "undefined") return latestFeedTimestamp;
+  const feedEl = document.getElementById("feed");
+  if (!feedEl) return latestFeedTimestamp;
+  let maxTs = latestFeedTimestamp || 0;
+  feedEl.querySelectorAll(".message[data-ts]").forEach((node) => {
+    const ts = Number(node.getAttribute("data-ts") || node.dataset.ts || 0);
+    if (ts > maxTs) {
+      maxTs = ts;
+    }
+  });
+  if (maxTs) {
+    commitLatestTimestamp(maxTs);
+  }
+  return latestFeedTimestamp;
+}
+
+function getLatestFeedTimestamp() {
+  if (latestFeedTimestamp) return latestFeedTimestamp;
+  return updateLatestTimestampFromFeed();
+}
+
 function createMessageElement({
   name = "anon",
   image = "",
@@ -97,6 +147,8 @@ function createMessageElement({
   timeHuman = "",
   blobHash = "",
   author = "",
+  timestamp = "",
+  replyCount = 0,
 } = {}) {
   const wrapper = document.createElement("div");
   const isReply = Boolean(reply);
@@ -104,6 +156,9 @@ function createMessageElement({
   wrapper.dataset.msgHash = blobHash || "";
   wrapper.dataset.author = author || "";
   wrapper.dataset.authorName = name || "anon";
+  if (timestamp) {
+    wrapper.dataset.ts = String(timestamp);
+  }
 
   let avatar;
   if (image) {
@@ -172,10 +227,21 @@ function createMessageElement({
   const actions = document.createElement("div");
   actions.className = "message-actions";
   const countLink = document.createElement("a");
+  const initialCount = Math.max(0, Number(replyCount) || 0);
   countLink.className = "reply-count";
-  countLink.dataset.count = "0";
+  countLink.dataset.count = String(initialCount);
   countLink.href = blobHash ? `/message/${blobHash}` : "#";
-  countLink.textContent = formatReplyCount(0);
+  countLink.textContent = formatReplyCount(initialCount);
+  if (blobHash) {
+    countLink.id = `reply-count-${blobHash}`;
+  }
+
+  const rawLink = document.createElement("a");
+  rawLink.className = "raw-link";
+  rawLink.href = blobHash ? `/blob/${blobHash}` : "#";
+  rawLink.target = "_blank";
+  rawLink.rel = "noopener noreferrer";
+  rawLink.textContent = "Raw";
 
   const replyButton = document.createElement("button");
   replyButton.className = "reply-btn";
@@ -185,6 +251,7 @@ function createMessageElement({
   replyButton.dataset.authorName = name || "anon";
 
   actions.appendChild(countLink);
+  actions.appendChild(rawLink);
   actions.appendChild(replyButton);
 
   content.appendChild(header);
@@ -195,6 +262,58 @@ function createMessageElement({
   wrapper.appendChild(avatar);
   wrapper.appendChild(content);
   return wrapper;
+}
+
+function prependMessageToFeed(message = {}) {
+  if (typeof document === "undefined") return;
+  const list = document.getElementById("message-list");
+  if (!list || !message?.blobHash) return;
+  const existing = Array.from(list.querySelectorAll(".message")).find(
+    (node) => node.dataset?.msgHash === message.blobHash,
+  );
+  if (existing) return;
+  const element = createMessageElement(message);
+  list.insertAdjacentElement("afterbegin", element);
+  const empty = document.getElementById("feed-empty-state");
+  empty?.remove();
+  updateLatestTimestampFromFeed();
+}
+
+async function fetchFeedUpdates() {
+  if (feedPollInFlight) return;
+  if (typeof document === "undefined") return;
+  const feedEl = document.getElementById("feed");
+  if (!feedEl) return;
+  const since = getLatestFeedTimestamp() || 0;
+  feedPollInFlight = true;
+  try {
+    const response = await fetch(`/feed?format=json&since=${since}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    if (Array.isArray(data?.messages)) {
+      data.messages
+        .slice()
+        .reverse()
+        .forEach((msg) => prependMessageToFeed(msg));
+    }
+    if (Array.isArray(data?.replyCounts)) {
+      data.replyCounts.forEach(({ hash, count }) => {
+        setReplyCountValue(hash, count);
+      });
+    }
+    commitLatestTimestamp(data?.latest);
+  } catch {
+    // ignore fetch errors
+  } finally {
+    feedPollInFlight = false;
+  }
+}
+
+function startFeedPolling(intervalMs = 5000) {
+  if (typeof window === "undefined") return;
+  if (feedPollTimer) return;
+  if (!document.getElementById("feed")) return;
+  feedPollTimer = window.setInterval(fetchFeedUpdates, intervalMs);
 }
 
 // --- Avatar behavior (from wiredove) ---
@@ -380,10 +499,6 @@ async function publishPayload(body, replyMeta = null) {
     humanTime = "just now";
   }
 
-  if (typeof window !== "undefined" && window.htmx) {
-    window.htmx.trigger(document.body, "refreshFeed");
-  }
-
   return {
     ok: true,
     message: {
@@ -395,6 +510,8 @@ async function publishPayload(body, replyMeta = null) {
       reply: replyMeta?.reply || parsed.reply || "",
       replyto: replyMeta?.replyto || parsed.replyto || "",
       timeHuman: humanTime || "just now",
+      timestamp: ts || "",
+      replyCount: 0,
     },
   };
 }
@@ -409,6 +526,8 @@ function wireDefaultComposer() {
     const result = await publishPayload(body);
     if (result?.ok) {
       textarea.value = "";
+      prependMessageToFeed(result.message);
+      fetchFeedUpdates();
     }
   };
 }
@@ -593,8 +712,14 @@ function handleReplyButtonClick(event) {
 if (typeof document !== "undefined") {
   document.addEventListener("click", handleReplyButtonClick);
   document.body?.addEventListener("htmx:afterSwap", (event) => {
-    if (!activeInlineReply?.hash) return;
     const target = event?.target;
+    if (target?.id === "feed" || target?.closest?.("#feed")) {
+      startFeedPolling();
+    }
+    if (target?.id === "message-list" || target?.closest?.("#feed")) {
+      updateLatestTimestampFromFeed();
+    }
+    if (!activeInlineReply?.hash) return;
     if (!target) return;
     const feedEl = document.getElementById("feed");
     if (!feedEl) return;
@@ -605,3 +730,4 @@ if (typeof document !== "undefined") {
 }
 
 main();
+updateLatestTimestampFromFeed();

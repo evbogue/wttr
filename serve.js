@@ -240,7 +240,7 @@ function appShell({
   const safeEndpoint = feedEndpoint ? escapeHtml(feedEndpoint) : "";
   const hxAttrs =
     enableHx && feedEndpoint
-      ? `data-feed-endpoint="${safeEndpoint}" hx-get="${safeEndpoint}" hx-trigger="load, every 5s, refreshFeed from:body" hx-swap="innerHTML"`
+      ? `data-feed-endpoint="${safeEndpoint}" hx-get="${safeEndpoint}" hx-trigger="load"`
       : "";
   const identityBlock = showIdentity
     ? `<div id="identity" class="identity"><i>Loading identity...</i></div>`
@@ -260,6 +260,70 @@ function appShell({
   `;
 }
 
+async function buildFeedMessageHtml(msg, replyCounts) {
+  const { meta, blobHash, author, ts } = msg;
+  const { name, image, body, reply, replyto } = meta;
+  const authorUrl = `/profile/${author}`;
+  const timeHuman = ts ? await apds.human(ts) : "";
+  const safeName = escapeHtml(name);
+  const safeBody = escapeHtml(body);
+  const safeTime = escapeHtml(timeHuman);
+  const safeAuthor = escapeHtml(author);
+  const imgSrc = imageSrc(image);
+  const safeMsgHash = escapeHtml(blobHash);
+  const safeReplyHash = reply ? escapeHtml(reply) : "";
+  const safeReplyPreview = reply ? escapeHtml(reply.slice(0, 8)) : "";
+  const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
+  const replyCount = replyCounts.get(blobHash) || 0;
+  const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
+  const safeRawUrl = escapeHtml(`/blob/${blobHash}`);
+  const safeMsgUrl = escapeHtml(`/message/${blobHash}`);
+  const safeAuthorUrl = escapeHtml(authorUrl);
+  const safeTs = escapeHtml(ts || "");
+  const replyCountId = escapeHtml(`reply-count-${blobHash}`);
+
+  const imgTag = image
+    ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
+    : `<div class="avatar" style="background:#ccc"></div>`;
+  const replyMeta = reply
+    ? `<div class="message-reply-ref">
+        Replying to <a href="/message/${safeReplyHash}">${safeReplyPreview}</a>${
+      replyto ? ` · <span class="pubkey">${safeReplyTo}</span>` : ""
+    }
+      </div>`
+    : "";
+  const actions = `
+    <div class="message-actions">
+      <a
+        id="${replyCountId}"
+        class="reply-count"
+        data-count="${replyCount}"
+        href="${safeMsgUrl}"
+      >${replyCountLabel}</a>
+      <a class="raw-link" href="${safeRawUrl}" target="_blank" rel="noopener noreferrer">Raw</a>
+      <button
+        class="reply-btn"
+        data-msg-hash="${safeMsgHash}"
+        data-author="${safeAuthor}"
+        data-author-name="${safeName}"
+      >Reply</button>
+    </div>`;
+
+  return `
+    <div class="message" data-msg-hash="${safeMsgHash}" data-author="${safeAuthor}" data-author-name="${safeName}" data-ts="${safeTs}">
+      ${imgTag}
+      <div class="message-content">
+        <div class="message-header">
+          <a href="${safeAuthorUrl}"><strong>${safeName}</strong></a>
+          <a href="${safeMsgUrl}" class="pubkey">${safeTime}</a>
+        </div>
+        ${replyMeta}
+        <div class="body">${safeBody}</div>
+        ${actions}
+      </div>
+    </div>`;
+}
+
 // Feed renderer (global or per-profile)
 async function renderFeed({
   filterAuthor = null,
@@ -268,82 +332,93 @@ async function renderFeed({
 } = {}) {
   const { messages, replyCounts } = await collectMessageData();
   const endpoint = filterAuthor ? `/profile/${filterAuthor}` : "/feed";
-
-  let feedContent = `<section class="feed-container"><h2>${escapeHtml(
-    heading
-  )}</h2><p><i>No posts yet.</i></p></section>`;
-
   const relevantMessages = filterAuthor
     ? messages.filter((msg) => msg.author === filterAuthor)
     : messages.slice();
+
+  const requestUrl = request ? new URL(request.url) : null;
+  const format = requestUrl?.searchParams?.get("format") || "html";
+  const sinceParam = requestUrl?.searchParams?.get("since");
+  const sinceRaw = sinceParam ? Number(sinceParam) : null;
+  const sinceValue = Number.isFinite(sinceRaw) ? sinceRaw : 0;
+
+  if (format === "json") {
+    const newMessages = relevantMessages.filter(
+      (msg) => Number(msg.ts || 0) > sinceValue,
+    );
+    const payload = await Promise.all(
+      newMessages
+        .slice()
+        .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))
+        .map(async (msg) => {
+          const { meta, blobHash, author, ts } = msg;
+          const {
+            name = "anon",
+            image = "",
+            body = "",
+            reply = "",
+            replyto = "",
+          } = meta;
+          const timeHuman = ts ? await apds.human(ts) : "";
+          return {
+            blobHash,
+            author,
+            timestamp: ts || "",
+            name,
+            image,
+            body,
+            reply,
+            replyto,
+            timeHuman,
+            replyCount: replyCounts.get(blobHash) || 0,
+          };
+        }),
+    );
+
+    const parentUpdates = Array.from(
+      newMessages.reduce((map, msg) => {
+        const parentHash = msg.meta?.reply;
+        if (!parentHash || map.has(parentHash)) return map;
+        map.set(parentHash, replyCounts.get(parentHash) || 0);
+        return map;
+      }, new Map()),
+    ).map(([hash, count]) => ({ hash, count }));
+
+    const latestCandidate = payload.reduce(
+      (max, item) => Math.max(max, Number(item.timestamp || 0) || 0),
+      sinceValue,
+    );
+
+    return new Response(
+      JSON.stringify({
+        latest: latestCandidate,
+        messages: payload,
+        replyCounts: parentUpdates,
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  let feedContent = `
+    <section class="feed-container">
+      <h2>${escapeHtml(heading)}</h2>
+      <div class="message-list" id="message-list">
+        <div class="empty-feed" id="feed-empty-state"><i>No posts yet.</i></div>
+      </div>
+    </section>`;
 
   if (relevantMessages.length) {
     const htmlParts = await Promise.all(
       relevantMessages
         .slice()
         .reverse()
-        .map(async (msg) => {
-          const { meta, blobHash, author, ts } = msg;
-          const { name, image, body, reply, replyto } = meta;
-          const authorUrl = `/profile/${author}`;
-          const timeHuman = ts ? await apds.human(ts) : "";
-          const safeName = escapeHtml(name);
-          const safeBody = escapeHtml(body);
-          const safeTime = escapeHtml(timeHuman);
-          const safeAuthor = escapeHtml(author);
-          const imgSrc = imageSrc(image);
-          const safeMsgHash = escapeHtml(blobHash);
-          const safeReplyHash = reply ? escapeHtml(reply) : "";
-          const safeReplyPreview = reply ? escapeHtml(reply.slice(0, 8)) : "";
-          const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
-          const replyCount = replyCounts.get(blobHash) || 0;
-          const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
-
-          const imgTag = image
-            ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
-            : `<div class="avatar" style="background:#ccc"></div>`;
-          const replyMeta = reply
-            ? `<div class="message-reply-ref">
-                Replying to <a href="/message/${safeReplyHash}">${safeReplyPreview}</a>${
-              replyto
-                ? ` · <span class="pubkey">${safeReplyTo}</span>`
-                : ""
-            }
-              </div>`
-            : "";
-          const safeMsgUrl = escapeHtml(`/message/${blobHash}`);
-          const safeAuthorUrl = escapeHtml(authorUrl);
-          const actions = `
-            <div class="message-actions">
-              <a class="reply-count" data-count="${replyCount}" href="${safeMsgUrl}">${replyCountLabel}</a>
-              <button
-                class="reply-btn"
-                data-msg-hash="${safeMsgHash}"
-                data-author="${safeAuthor}"
-                data-author-name="${safeName}"
-              >Reply</button>
-            </div>`;
-
-          return `
-          <div class="message" data-msg-hash="${safeMsgHash}" data-author="${safeAuthor}" data-author-name="${safeName}">
-            ${imgTag}
-            <div class="message-content">
-              <div class="message-header">
-                <a href="${safeAuthorUrl}"><strong>${safeName}</strong></a>
-                <a href="${safeMsgUrl}" class="pubkey">${safeTime}</a>
-              </div>
-              ${replyMeta}
-              <div class="body">${safeBody}</div>
-              ${actions}
-            </div>
-          </div>`;
-        })
+        .map((msg) => buildFeedMessageHtml(msg, replyCounts)),
     );
 
     feedContent = `
       <section class="feed-container">
         <h2>${escapeHtml(heading)}</h2>
-        <div class="message-list">
+        <div class="message-list" id="message-list">
           ${htmlParts.join("")}
         </div>
       </section>`;
@@ -398,6 +473,7 @@ async function renderReplyThread({
       const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
       const replyCount = replyCounts.get(blobHash) || 0;
       const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
+      const safeRawUrl = escapeHtml(`/blob/${blobHash}`);
 
       const imgTag = image
         ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
@@ -418,6 +494,7 @@ async function renderReplyThread({
       const actions = `
         <div class="message-actions">
           <a class="reply-count" data-count="${replyCount}" href="${safeMsgUrl}">${replyCountLabel}</a>
+          <a class="raw-link" href="${safeRawUrl}" target="_blank" rel="noopener noreferrer">Raw</a>
           <button
             class="reply-btn"
             data-msg-hash="${safeMsgHash}"
@@ -511,6 +588,7 @@ async function renderMessage(hash) {
   const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
   const replyCount = replyCounts.get(hash) || 0;
   const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
+  const safeRawUrl = escapeHtml(`/blob/${hash}`);
 
   const imgTag = image
     ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
@@ -525,6 +603,7 @@ async function renderMessage(hash) {
   const actions = `
     <div class="message-actions">
       <span class="reply-count" data-count="${replyCount}">${replyCountLabel}</span>
+      <a class="raw-link" href="${safeRawUrl}" target="_blank" rel="noopener noreferrer">Raw</a>
       <button
         class="reply-btn"
         data-msg-hash="${safeMsgHash}"
