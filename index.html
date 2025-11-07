@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>wttr 🪶</title>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>wttr 🪶</header>
+  <main>
+    <div id="identity" class="identity"><i>Loading identity...</i></div>
+
+    <div class="compose-box">
+      <textarea id="msg" placeholder="What are you doing in this world?"></textarea><br>
+      <button id="publishBtn">Publish</button>
+    </div>
+
+    <div id="feed"
+      class="feed"
+      hx-get="/feed"
+      hx-trigger="load, every 5s, refreshFeed from:body"
+      hx-swap="innerHTML">
+    </div>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

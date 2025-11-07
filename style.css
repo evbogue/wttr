@@ -1,0 +1,160 @@
+body {
+  margin: 0;
+  background: #e6ecf0;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: #14171a;
+}
+
+header {
+  background: #1da1f2;
+  color: white;
+  text-align: center;
+  padding: 14px 0;
+  font-size: 24px;
+  font-weight: 700;
+  border-bottom: 1px solid #1991da;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+main {
+  max-width: 620px;
+  margin: 40px auto 60px;
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e1e8ed;
+  box-shadow: 0 10px 30px rgba(27, 149, 224, 0.08);
+  padding: 24px 30px;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.identity input {
+  flex: 1;
+  border: 1px solid #ccd6dd;
+  border-radius: 24px;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px #1da1f2;
+  object-fit: cover;
+  cursor: pointer;
+}
+
+.compose-box {
+  background: #f5f8fa;
+  padding: 16px;
+  border: 1px solid #e1e8ed;
+  border-radius: 16px;
+  margin-bottom: 24px;
+}
+
+.compose-box textarea {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #e1e8ed;
+  resize: none;
+  height: 70px;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 8px 0;
+  background: transparent;
+  outline: none;
+}
+
+.compose-box button {
+  background: #1da1f2;
+  border: none;
+  color: white;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 10px;
+  float: right;
+  transition: background 0.2s ease;
+}
+
+.compose-box button:hover {
+  background: #1684c9;
+}
+
+.message {
+  border-bottom: 1px solid #e6ecf0;
+  display: flex;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.message-content {
+  flex: 1;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.message strong {
+  color: #14171a;
+  font-size: 15px;
+}
+
+.pubkey {
+  font-size: 12px;
+  color: #657786;
+  text-decoration: none;
+}
+
+.body {
+  white-space: pre-wrap;
+  color: #14171a;
+  font-size: 15px;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.keypair {
+  font-size: 12px;
+  color: #657786;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e6ecf0;
+  border-radius: 12px;
+  background: #fdfefe;
+  word-break: break-all;
+}
+
+.keypair code {
+  background: #f0f4f8;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.page {
+  min-height: 100vh;
+}
+
+.feed-container h2 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  color: #14171a;
+}
+
+.message-list {
+  margin-top: 10px;
+}
