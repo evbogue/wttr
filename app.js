@@ -66,6 +66,137 @@ async function getSecretKey() {
   return (await apds.get("secret")) || "";
 }
 
+function formatReplyCount(count = 0) {
+  const value = Number(count) || 0;
+  const label = value === 1 ? "reply" : "replies";
+  return `${value} ${label}`;
+}
+
+function imageSrc(image) {
+  if (!image) return "";
+  if (typeof image === "string" && image.startsWith("data:")) return image;
+  return `/blob/${image}`;
+}
+
+function updateReplyCountDisplay(target, delta = 0) {
+  if (!target) return;
+  const current = Number(target.dataset?.count || 0);
+  const next = Math.max(0, current + delta);
+  if (target.dataset) {
+    target.dataset.count = String(next);
+  }
+  target.textContent = formatReplyCount(next);
+}
+
+function createMessageElement({
+  name = "anon",
+  image = "",
+  body = "",
+  reply = "",
+  replyto = "",
+  timeHuman = "",
+  blobHash = "",
+  author = "",
+} = {}) {
+  const wrapper = document.createElement("div");
+  const isReply = Boolean(reply);
+  wrapper.className = `message${isReply ? " reply" : ""} inline-generated`;
+  wrapper.dataset.msgHash = blobHash || "";
+  wrapper.dataset.author = author || "";
+  wrapper.dataset.authorName = name || "anon";
+
+  let avatar;
+  if (image) {
+    avatar = document.createElement("img");
+    avatar.className = "avatar";
+    avatar.src = imageSrc(image);
+    avatar.alt = `${name}'s avatar`;
+  } else {
+    avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.style.background = "#ccc";
+  }
+
+  const content = document.createElement("div");
+  content.className = "message-content";
+
+  const header = document.createElement("div");
+  header.className = "message-header";
+  let nameNode;
+  if (author) {
+    const link = document.createElement("a");
+    link.href = `/profile/${author}`;
+    nameNode = link;
+  } else {
+    nameNode = document.createElement("span");
+  }
+  const strong = document.createElement("strong");
+  strong.textContent = name || "anon";
+  nameNode.appendChild(strong);
+
+  const timeLink = document.createElement("a");
+  timeLink.className = "pubkey";
+  timeLink.href = blobHash ? `/message/${blobHash}` : "#";
+  timeLink.textContent = timeHuman || "just now";
+
+  header.appendChild(nameNode);
+  header.appendChild(timeLink);
+
+  const bodyDiv = document.createElement("div");
+  bodyDiv.className = "body";
+  bodyDiv.textContent = body;
+
+  const replyMeta =
+    reply
+      ? (() => {
+        const ref = document.createElement("div");
+        ref.className = "message-reply-ref";
+        const text = document.createTextNode("Replying to ");
+        const link = document.createElement("a");
+        link.href = `/message/${reply}`;
+        link.textContent = (reply || "").slice(0, 8);
+        ref.appendChild(text);
+        ref.appendChild(link);
+        if (replyto) {
+          const sep = document.createTextNode(" · ");
+          const span = document.createElement("span");
+          span.className = "pubkey";
+          span.textContent = replyto.slice(0, 10);
+          ref.appendChild(sep);
+          ref.appendChild(span);
+        }
+        return ref;
+      })()
+      : null;
+
+  const actions = document.createElement("div");
+  actions.className = "message-actions";
+  const countLink = document.createElement("a");
+  countLink.className = "reply-count";
+  countLink.dataset.count = "0";
+  countLink.href = blobHash ? `/message/${blobHash}` : "#";
+  countLink.textContent = formatReplyCount(0);
+
+  const replyButton = document.createElement("button");
+  replyButton.className = "reply-btn";
+  replyButton.textContent = "Reply";
+  replyButton.dataset.msgHash = blobHash || "";
+  replyButton.dataset.author = author || "";
+  replyButton.dataset.authorName = name || "anon";
+
+  actions.appendChild(countLink);
+  actions.appendChild(replyButton);
+
+  content.appendChild(header);
+  if (replyMeta) content.appendChild(replyMeta);
+  content.appendChild(bodyDiv);
+  content.appendChild(actions);
+
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(content);
+  return wrapper;
+}
+
 // --- Avatar behavior (from wiredove) ---
 async function avatarSpan() {
   await ensureKeypair();
@@ -169,55 +300,308 @@ async function renderIdentity() {
   identityRoot.appendChild(keypairDiv);
 }
 
-// --- Publish message (wiredove-style) ---
-async function publishMessage() {
-  const textarea = document.getElementById("msg");
-  if (!textarea) return;
-  const body = textarea.value.trim();
-  if (!body) return alert("Please write something.");
+let activeInlineReply = null;
 
-  // Compose YAML and sign
-  const msghash = await apds.compose(body);
-  const sig = await apds.get(msghash);
-  const opened = await apds.open(sig);
-  const blobHash = opened.substring(13);
-  const blob = await apds.get(blobHash);
-
-  await fetch("/publish", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sig, blob }),
-  });
-
-  textarea.value = "";
-  if (window.htmx) {
-    window.htmx.trigger(document.body, "refreshFeed");
+function setActiveInlineReply(meta) {
+  if (meta && meta.hash) {
+    activeInlineReply = {
+      hash: meta.hash,
+      author: meta.author || "",
+      authorName: meta.authorName || "",
+    };
+  } else {
+    activeInlineReply = null;
   }
 }
 
-function wirePublishButton() {
+async function publishPayload(body, replyMeta = null) {
+  if (!body) return { ok: false };
+  let authorPub = "";
+  let cachedName = "anon";
+  try {
+    await ensureKeypair();
+    authorPub = (await apds.pubkey()) || "";
+    cachedName = (await apds.get("name")) || cachedName;
+  } catch {
+    // ignore missing identity
+  }
+  let msghash = null;
+  if (replyMeta?.reply) {
+    try {
+      msghash = await apds.compose(body, {
+        reply: replyMeta.reply,
+        replyto: replyMeta.replyto || "",
+      });
+    } catch {
+      msghash = null;
+    }
+  }
+  if (!msghash) {
+    try {
+      msghash = await apds.compose(body);
+    } catch {
+      return { ok: false };
+    }
+  }
+  let sig = "";
+  let blob = "";
+  let blobHash = "";
+  let ts = "";
+  try {
+    sig = await apds.get(msghash);
+    const opened = await apds.open(sig);
+    ts = opened.substring(0, 13);
+    blobHash = opened.substring(13);
+    blob = await apds.get(blobHash);
+  } catch {
+    return { ok: false };
+  }
+
+  try {
+    await fetch("/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sig, blob }),
+    });
+  } catch {
+    return { ok: false };
+  }
+
+  let parsed = {};
+  try {
+    parsed = await apds.parseYaml(blob);
+  } catch {
+    parsed = {};
+  }
+  let humanTime = "";
+  try {
+    humanTime = await apds.human(ts);
+  } catch {
+    humanTime = "just now";
+  }
+
+  if (typeof window !== "undefined" && window.htmx) {
+    window.htmx.trigger(document.body, "refreshFeed");
+  }
+
+  return {
+    ok: true,
+    message: {
+      blobHash,
+      author: authorPub,
+      name: parsed.name || cachedName,
+      image: parsed.image || "",
+      body: typeof parsed.body === "string" ? parsed.body : body,
+      reply: replyMeta?.reply || parsed.reply || "",
+      replyto: replyMeta?.replyto || parsed.replyto || "",
+      timeHuman: humanTime || "just now",
+    },
+  };
+}
+
+function wireDefaultComposer() {
+  const textarea = document.getElementById("msg");
   const button = document.getElementById("publishBtn");
-  if (!button) return;
-  button.onclick = publishMessage;
+  if (!textarea || !button) return;
+  button.onclick = async () => {
+    const body = textarea.value.trim();
+    if (!body) return alert("Please write something.");
+    const result = await publishPayload(body);
+    if (result?.ok) {
+      textarea.value = "";
+    }
+  };
 }
 
 async function main() {
-  if (!isHomePage) {
-    const identityEl = document.getElementById("identity");
-    if (identityEl?.parentElement) {
-      identityEl.parentElement.removeChild(identityEl);
-    }
-    const composeEl = document.querySelector(".compose-box");
-    if (composeEl?.parentElement) {
-      composeEl.parentElement.removeChild(composeEl);
-    }
-    return;
-  }
+  await apds.start("wttr-lite");
+  if (!isHomePage) return;
   const identityEl = document.getElementById("identity");
   if (!identityEl) return;
-  await apds.start("wttr-lite");
   await renderIdentity();
-  wirePublishButton();
+  wireDefaultComposer();
+}
+
+function createReplyComposer(meta = {}, targetMessage = null) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "inline-reply-wrapper";
+  wrapper.dataset.for = meta.hash || "";
+
+  const composeBox = document.createElement("div");
+  composeBox.className = "compose-box inline-reply-composer";
+
+  const replyContext = document.createElement("div");
+  replyContext.className = "reply-context";
+  const label = document.createElement("span");
+  const authorName = meta.authorName?.trim();
+  const fallback =
+    authorName || (meta.author || "").slice(0, 10) ||
+    (meta.hash || "").slice(0, 8) ||
+    "post";
+  label.textContent = `Replying to ${fallback}`;
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel reply";
+  cancelBtn.addEventListener("click", () => {
+    wrapper.remove();
+    if (activeInlineReply?.hash === meta.hash) {
+      setActiveInlineReply(null);
+    }
+  });
+
+  replyContext.appendChild(label);
+  replyContext.appendChild(cancelBtn);
+
+  const textarea = document.createElement("textarea");
+  textarea.placeholder = "Write a reply...";
+
+  const publishBtn = document.createElement("button");
+  publishBtn.type = "button";
+  publishBtn.textContent = "Reply";
+  publishBtn.addEventListener("click", async () => {
+    const body = textarea.value.trim();
+    if (!body) return alert("Please write something.");
+    const result = await publishPayload(body, {
+      reply: meta.hash,
+      replyto: meta.author || "",
+    });
+    if (result?.ok) {
+      textarea.value = "";
+      const newMessageEl = createMessageElement(result.message);
+      const parentCountEl = targetMessage?.querySelector(".reply-count");
+      if (parentCountEl) {
+        updateReplyCountDisplay(parentCountEl, 1);
+      }
+      if (wrapper.parentElement) {
+        wrapper.replaceWith(newMessageEl);
+      } else {
+        wrapper.remove();
+      }
+      if (activeInlineReply?.hash === meta.hash) {
+        setActiveInlineReply(null);
+      }
+    }
+  });
+
+  composeBox.appendChild(replyContext);
+  composeBox.appendChild(textarea);
+  composeBox.appendChild(publishBtn);
+  wrapper.appendChild(composeBox);
+
+  setActiveInlineReply(meta);
+
+  return wrapper;
+}
+
+function ensureSiblingReplyContainer(messageEl) {
+  if (!messageEl?.parentElement) return null;
+  let next = messageEl.nextSibling;
+  while (next && next.nodeType !== 1) {
+    next = next.nextSibling;
+  }
+  if (next?.classList?.contains("reply-children")) {
+    return next;
+  }
+  const container = document.createElement("div");
+  container.className = "reply-children inline-replies";
+  messageEl.parentElement.insertBefore(container, next || null);
+  return container;
+}
+
+function getReplyInsertionContainer(messageEl) {
+  if (!messageEl) return null;
+  const nestedThread = messageEl.closest(".reply-thread");
+  if (nestedThread && messageEl.classList.contains("reply")) {
+    return ensureSiblingReplyContainer(messageEl);
+  }
+  const globalThread = document.querySelector(".reply-thread");
+  if (globalThread && globalThread.previousElementSibling === messageEl) {
+    globalThread.classList.remove("empty");
+    if (!globalThread.querySelector("h3")) {
+      globalThread.innerHTML = "<h3>Replies</h3>";
+    }
+    let container = globalThread.querySelector(".reply-children");
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "reply-children inline-replies";
+      globalThread.appendChild(container);
+    }
+    return container;
+  }
+  if (nestedThread) {
+    return ensureSiblingReplyContainer(messageEl);
+  }
+  return null;
+}
+
+function openInlineComposer(messageEl, meta) {
+  if (!messageEl || !meta?.hash) return;
+  const existing = Array.from(
+    document.querySelectorAll(".inline-reply-wrapper"),
+  ).find((node) => node.dataset?.for === meta.hash);
+  if (existing) {
+    const textarea = existing.querySelector("textarea");
+    textarea?.focus();
+    return;
+  }
+  const container = getReplyInsertionContainer(messageEl);
+  const wrapper = createReplyComposer(meta, messageEl);
+  if (container) {
+    container.insertAdjacentElement("afterbegin", wrapper);
+  } else {
+    messageEl.insertAdjacentElement("afterend", wrapper);
+  }
+  const textarea = wrapper.querySelector("textarea");
+  textarea?.focus();
+}
+
+function clearInlineReplyState() {
+  document.querySelectorAll(".inline-reply-wrapper").forEach((node) =>
+    node.remove()
+  );
+  setActiveInlineReply(null);
+}
+
+function reattachInlineComposer() {
+  if (!activeInlineReply?.hash) return;
+  const messageEl = Array.from(document.querySelectorAll(".message")).find(
+    (el) => el.dataset?.msgHash === activeInlineReply.hash,
+  );
+  if (!messageEl) {
+    clearInlineReplyState();
+    return;
+  }
+  openInlineComposer(messageEl, activeInlineReply);
+}
+
+function handleReplyButtonClick(event) {
+  const target = event?.target?.closest?.(".reply-btn");
+  if (!target) return;
+  event.preventDefault();
+  const meta = {
+    hash: target.dataset?.msgHash || target.getAttribute("data-msg-hash") || "",
+    author: target.dataset?.author || target.getAttribute("data-author") || "",
+    authorName: target.dataset?.authorName ||
+      target.getAttribute("data-author-name") || "",
+  };
+  const messageEl = target.closest(".message");
+  if (!meta.hash || !messageEl) return;
+  openInlineComposer(messageEl, meta);
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("click", handleReplyButtonClick);
+  document.body?.addEventListener("htmx:afterSwap", (event) => {
+    if (!activeInlineReply?.hash) return;
+    const target = event?.target;
+    if (!target) return;
+    const feedEl = document.getElementById("feed");
+    if (!feedEl) return;
+    if (target === feedEl || feedEl.contains(target)) {
+      reattachInlineComposer();
+    }
+  });
 }
 
 main();

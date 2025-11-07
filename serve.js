@@ -127,7 +127,53 @@ async function parseMessageBlob(blob) {
     name: obj.name || "anon",
     image: obj.image || "",
     body: obj.body || "",
+    reply: obj.reply || "",
+    replyto: obj.replyto || "",
   };
+}
+
+async function collectMessageData() {
+  const openedLog = await apds.getOpenedLog();
+  const messages = [];
+  const replyCounts = new Map();
+  const replyChildren = new Map();
+  const messageIndex = new Map();
+
+  if (!openedLog?.length) {
+    return { openedLog: [], messages, replyCounts, replyChildren, messageIndex };
+  }
+
+  for (const entry of openedLog) {
+    const openedStr = entry.opened || "";
+    const ts = openedStr.substring(0, 13);
+    const blobHash = openedStr.substring(13);
+    if (!blobHash) continue;
+
+    const blob = await apds.get(blobHash);
+    if (!blob) continue;
+
+    const meta = await parseMessageBlob(blob);
+    const message = {
+      entry,
+      blob,
+      blobHash,
+      meta,
+      ts,
+      author: entry.author || "",
+    };
+    messages.push(message);
+    messageIndex.set(blobHash, message);
+
+    const parentHash = meta.reply || "";
+    if (parentHash) {
+      replyCounts.set(parentHash, (replyCounts.get(parentHash) || 0) + 1);
+      const children = replyChildren.get(parentHash) || [];
+      children.push(message);
+      replyChildren.set(parentHash, children);
+    }
+  }
+
+  return { openedLog, messages, replyCounts, replyChildren, messageIndex };
 }
 
 function escapeHtml(str = "") {
@@ -137,6 +183,12 @@ function escapeHtml(str = "") {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function formatReplyCount(count = 0) {
+  const value = Number(count) || 0;
+  const label = value === 1 ? "reply" : "replies";
+  return `${value} ${label}`;
 }
 
 function isHxRequest(request) {
@@ -214,54 +266,75 @@ async function renderFeed({
   heading = "wttr feed",
   request = null,
 } = {}) {
-  const openedLog = await apds.getOpenedLog();
+  const { messages, replyCounts } = await collectMessageData();
   const endpoint = filterAuthor ? `/profile/${filterAuthor}` : "/feed";
 
   let feedContent = `<section class="feed-container"><h2>${escapeHtml(
     heading
   )}</h2><p><i>No posts yet.</i></p></section>`;
 
-  if (openedLog?.length) {
+  const relevantMessages = filterAuthor
+    ? messages.filter((msg) => msg.author === filterAuthor)
+    : messages.slice();
+
+  if (relevantMessages.length) {
     const htmlParts = await Promise.all(
-      openedLog
+      relevantMessages
         .slice()
         .reverse()
-        .map(async (entry) => {
-          if (filterAuthor && entry.author !== filterAuthor) return "";
-
-          const openedStr = entry.opened || "";
-          const author = entry.author || "";
+        .map(async (msg) => {
+          const { meta, blobHash, author, ts } = msg;
+          const { name, image, body, reply, replyto } = meta;
           const authorUrl = `/profile/${author}`;
-          const ts = openedStr.substring(0, 13);
-          const blobHash = openedStr.substring(13);
-          const blob = await apds.get(blobHash);
-          if (!blob) return "";
-
-          const { name, image, body } = await parseMessageBlob(blob);
-          const timeHuman = await apds.human(ts);
+          const timeHuman = ts ? await apds.human(ts) : "";
           const safeName = escapeHtml(name);
           const safeBody = escapeHtml(body);
           const safeTime = escapeHtml(timeHuman);
+          const safeAuthor = escapeHtml(author);
           const imgSrc = imageSrc(image);
+          const safeMsgHash = escapeHtml(blobHash);
+          const safeReplyHash = reply ? escapeHtml(reply) : "";
+          const safeReplyPreview = reply ? escapeHtml(reply.slice(0, 8)) : "";
+          const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
+          const replyCount = replyCounts.get(blobHash) || 0;
+          const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
 
           const imgTag = image
             ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
             : `<div class="avatar" style="background:#ccc"></div>`;
-
-          // Use blobHash as message id
-          const msgHash = blobHash;
+          const replyMeta = reply
+            ? `<div class="message-reply-ref">
+                Replying to <a href="/message/${safeReplyHash}">${safeReplyPreview}</a>${
+              replyto
+                ? ` · <span class="pubkey">${safeReplyTo}</span>`
+                : ""
+            }
+              </div>`
+            : "";
+          const safeMsgUrl = escapeHtml(`/message/${blobHash}`);
           const safeAuthorUrl = escapeHtml(authorUrl);
-          const safeMsgUrl = escapeHtml(`/message/${msgHash}`);
+          const actions = `
+            <div class="message-actions">
+              <a class="reply-count" data-count="${replyCount}" href="${safeMsgUrl}">${replyCountLabel}</a>
+              <button
+                class="reply-btn"
+                data-msg-hash="${safeMsgHash}"
+                data-author="${safeAuthor}"
+                data-author-name="${safeName}"
+              >Reply</button>
+            </div>`;
 
           return `
-          <div class="message">
+          <div class="message" data-msg-hash="${safeMsgHash}" data-author="${safeAuthor}" data-author-name="${safeName}">
             ${imgTag}
             <div class="message-content">
               <div class="message-header">
                 <a href="${safeAuthorUrl}"><strong>${safeName}</strong></a>
                 <a href="${safeMsgUrl}" class="pubkey">${safeTime}</a>
               </div>
+              ${replyMeta}
               <div class="body">${safeBody}</div>
+              ${actions}
             </div>
           </div>`;
         })
@@ -293,62 +366,201 @@ async function renderFeed({
   );
 }
 
+async function renderReplyThread({
+  parentHash,
+  replyChildren,
+  replyCounts,
+  depth = 1,
+} = {}) {
+  const children = replyChildren.get(parentHash);
+  if (!children?.length) return "";
+
+  const sorted = children
+    .slice()
+    .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+
+  const parts = await Promise.all(
+    sorted.map(async (child) => {
+      const { meta, blobHash, author, ts } = child;
+      const { name, image, body, reply, replyto } = meta;
+      const timeHuman = ts ? await apds.human(ts) : "";
+      const safeTime = escapeHtml(timeHuman);
+      const safeName = escapeHtml(name);
+      const safeBody = escapeHtml(body);
+      const safeAuthor = escapeHtml(author);
+      const imgSrc = imageSrc(image);
+      const safeMsgHash = escapeHtml(blobHash);
+      const safeMsgUrl = escapeHtml(`/message/${blobHash}`);
+      const authorUrl = `/profile/${author}`;
+      const safeAuthorUrl = escapeHtml(authorUrl);
+      const safeReplyHash = reply ? escapeHtml(reply) : "";
+      const safeReplyPreview = reply ? escapeHtml(reply.slice(0, 8)) : "";
+      const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
+      const replyCount = replyCounts.get(blobHash) || 0;
+      const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
+
+      const imgTag = image
+        ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
+        : `<div class="avatar" style="background:#ccc"></div>`;
+      const replyMeta = reply
+        ? `<div class="message-reply-ref">
+            Replying to <a href="/message/${safeReplyHash}">${safeReplyPreview}</a>${
+          replyto ? ` · <span class="pubkey">${safeReplyTo}</span>` : ""
+        }
+          </div>`
+        : "";
+      const nested = await renderReplyThread({
+        parentHash: blobHash,
+        replyChildren,
+        replyCounts,
+        depth: depth + 1,
+      });
+      const actions = `
+        <div class="message-actions">
+          <a class="reply-count" data-count="${replyCount}" href="${safeMsgUrl}">${replyCountLabel}</a>
+          <button
+            class="reply-btn"
+            data-msg-hash="${safeMsgHash}"
+            data-author="${safeAuthor}"
+            data-author-name="${safeName}"
+          >Reply</button>
+        </div>`;
+
+      return `
+        <div class="message reply" data-msg-hash="${safeMsgHash}" data-author="${safeAuthor}" data-author-name="${safeName}">
+          ${imgTag}
+          <div class="message-content">
+            <div class="message-header">
+              <a href="${safeAuthorUrl}"><strong>${safeName}</strong></a>
+              <a href="${safeMsgUrl}" class="pubkey">${safeTime}</a>
+            </div>
+            ${replyMeta}
+            <div class="body">${safeBody}</div>
+            ${actions}
+            ${nested}
+          </div>
+        </div>`;
+    })
+  );
+
+  return `<div class="reply-children depth-${depth}">
+    ${parts.join("")}
+  </div>`;
+}
+
 // Single message renderer
 async function renderMessage(hash) {
-  const blob = await apds.get(hash);
   const endpoint = `/message/${hash}`;
+  const {
+    openedLog,
+    messageIndex,
+    replyCounts,
+    replyChildren,
+  } = await collectMessageData();
+
+  let messageData = messageIndex.get(hash);
+  let blob = messageData?.blob;
   if (!blob) {
-    const notFoundContent =
-      '<section class="feed-container"><p><i>Message not found.</i></p></section>';
-    return htmlResponse(
-      renderPage({
-        title: "Message not found",
-        content: appShell({
-          feedInner: notFoundContent,
-          feedEndpoint: endpoint,
-          enableHx: false,
-        }),
-      })
-    );
-  }
-
-  // Find timestamp from opened entries
-  const openedLog = await apds.getOpenedLog();
-  let ts = null;
-  let author = null;
-  for (const entry of openedLog) {
-    const openedStr = entry.opened || "";
-    const blobHash = openedStr.substring(13);
-    if (blobHash === hash) {
-      ts = openedStr.substring(0, 13);
-      author = entry.author;
-      break;
+    blob = await apds.get(hash);
+    if (!blob) {
+      const notFoundContent =
+        '<section class="feed-container"><p><i>Message not found.</i></p></section>';
+      return htmlResponse(
+        renderPage({
+          title: "Message not found",
+          content: appShell({
+            feedInner: notFoundContent,
+            feedEndpoint: endpoint,
+            enableHx: false,
+          }),
+        })
+      );
     }
+    const meta = await parseMessageBlob(blob);
+    let ts = null;
+    let author = "";
+    const fallbackEntry = openedLog?.find?.((entry) => {
+      const openedStr = entry.opened || "";
+      return openedStr.substring(13) === hash;
+    });
+    if (fallbackEntry) {
+      const openedStr = fallbackEntry.opened || "";
+      ts = openedStr.substring(0, 13);
+      author = fallbackEntry.author || "";
+    }
+    messageData = {
+      blob,
+      blobHash: hash,
+      meta,
+      ts,
+      author,
+    };
   }
 
-  const { name, image, body } = await parseMessageBlob(blob);
+  const { meta, author = "", ts } = messageData;
+  const { name, image, body, reply, replyto } = meta;
   const timeHuman = ts ? await apds.human(ts) : "";
   const safeName = escapeHtml(name);
   const safeBody = escapeHtml(body);
   const safeTime = escapeHtml(timeHuman);
+  const safeAuthor = escapeHtml(author);
+  const safeMsgHash = escapeHtml(hash);
   const imgSrc = imageSrc(image);
+  const safeReplyHash = reply ? escapeHtml(reply) : "";
+  const safeReplyPreview = reply ? escapeHtml(reply.slice(0, 8)) : "";
+  const safeReplyTo = replyto ? escapeHtml(replyto.slice(0, 10)) : "";
+  const replyCount = replyCounts.get(hash) || 0;
+  const replyCountLabel = escapeHtml(formatReplyCount(replyCount));
 
   const imgTag = image
     ? `<img src="${escapeHtml(imgSrc)}" class="avatar" alt="${safeName}'s avatar">`
     : `<div class="avatar" style="background:#ccc"></div>`;
+  const replyMeta = reply
+    ? `<div class="message-reply-ref">
+        Replying to <a href="/message/${safeReplyHash}">${safeReplyPreview}</a>${
+      replyto ? ` · <span class="pubkey">${safeReplyTo}</span>` : ""
+    }
+      </div>`
+    : "";
+  const actions = `
+    <div class="message-actions">
+      <span class="reply-count" data-count="${replyCount}">${replyCountLabel}</span>
+      <button
+        class="reply-btn"
+        data-msg-hash="${safeMsgHash}"
+        data-author="${safeAuthor}"
+        data-author-name="${safeName}"
+      >Reply</button>
+    </div>`;
+
+  const repliesHtml = await renderReplyThread({
+    parentHash: hash,
+    replyChildren,
+    replyCounts,
+  });
+
+  const repliesSection = repliesHtml
+    ? `<div class="reply-thread">
+        <h3>Replies</h3>
+        ${repliesHtml}
+      </div>`
+    : `<div class="reply-thread empty"><p><i>No replies yet.</i></p></div>`;
 
   const messageContent = `
     <section class="feed-container">
-      <div class="message">
+      <div class="message" data-msg-hash="${safeMsgHash}" data-author="${safeAuthor}" data-author-name="${safeName}">
         ${imgTag}
         <div class="message-content">
           <div class="message-header">
             <strong>${safeName}</strong>
             <span class="pubkey">${safeTime}</span>
           </div>
+          ${replyMeta}
           <div class="body">${safeBody}</div>
+          ${actions}
         </div>
       </div>
+      ${repliesSection}
       <p><a href="/">← Back to wttr</a></p>
     </section>`;
 

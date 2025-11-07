@@ -85,6 +85,37 @@ main {
   margin-bottom: 24px;
 }
 
+.reply-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #e8f5fe;
+  border: 1px solid #c6e7fd;
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #0f1419;
+}
+
+.reply-context-hidden {
+  display: none;
+}
+
+.reply-context button {
+  margin-left: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #1d9bf0;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .compose-box textarea {
   width: 100%;
   border: none;
@@ -152,6 +183,66 @@ main {
   margin-top: 6px;
 }
 
+.message-reply-ref {
+  font-size: 12px;
+  color: #657786;
+  margin-top: 4px;
+}
+
+.message-reply-ref a {
+  color: #1d9bf0;
+  text-decoration: none;
+}
+
+.message-reply-ref a:hover {
+  text-decoration: underline;
+}
+
+.message-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reply-btn {
+  background: transparent;
+  border: 1px solid #cfd9de;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: #1d9bf0;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.reply-btn:hover {
+  background: rgba(29, 155, 240, 0.1);
+}
+
+.reply-count {
+  font-size: 12px;
+  color: #657786;
+}
+
+a.reply-count {
+  text-decoration: none;
+}
+
+a.reply-count:hover {
+  text-decoration: underline;
+  color: #1d9bf0;
+}
+
+.inline-reply-wrapper {
+  margin: -8px 0 16px 64px;
+}
+
+.inline-reply-composer .reply-context {
+  margin-bottom: 8px;
+}
+
 .keypair {
   font-size: 12px;
   color: #657786;
@@ -181,4 +272,52 @@ main {
 
 .message-list {
   margin-top: 10px;
+}
+
+.reply-thread {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e6ecf0;
+}
+
+.reply-thread h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: #14171a;
+}
+
+.reply-thread.empty {
+  border-top: none;
+  padding-top: 0;
+}
+
+.reply-thread .reply-children {
+  margin-left: 12px;
+  border-left: 2px solid #e6ecf0;
+  padding-left: 8px;
+}
+
+.reply-thread .reply-children.inline-replies {
+  margin-top: 12px;
+}
+
+.reply-thread .reply-children .reply-children {
+  border-color: #f2f5f7;
+}
+
+.reply-thread .message {
+  border-bottom: 1px solid #eef1f4;
+  padding: 12px 0;
+}
+
+.reply-thread .message:last-child {
+  border-bottom: none;
+}
+
+.message.reply {
+  padding-bottom: 0;
+}
+
+.message.inline-generated {
+  padding: 12px 0;
 }
