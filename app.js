@@ -1,5 +1,9 @@
 import { apds } from "https://esm.sh/gh/evbogue/apds/apds.js";
 
+const isHomePage = typeof window !== "undefined" &&
+  window.location &&
+  window.location.pathname === "/";
+
 const escapeHtml = (str = "") =>
   String(str)
     .replace(/&/g, "&amp;")
@@ -198,6 +202,17 @@ function wirePublishButton() {
 }
 
 async function main() {
+  if (!isHomePage) {
+    const identityEl = document.getElementById("identity");
+    if (identityEl?.parentElement) {
+      identityEl.parentElement.removeChild(identityEl);
+    }
+    const composeEl = document.querySelector(".compose-box");
+    if (composeEl?.parentElement) {
+      composeEl.parentElement.removeChild(composeEl);
+    }
+    return;
+  }
   const identityEl = document.getElementById("identity");
   if (!identityEl) return;
   await apds.start("wttr-lite");

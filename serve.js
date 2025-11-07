@@ -158,7 +158,10 @@ function renderPage({ title = "wttr", content = "" } = {}) {
       <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     </head>
     <body>
-      <header>wttr 🪶</header>
+      <header>
+        <a class="home-link" href="/">wttr 🪶</a>
+        <a class="github-link" href="https://github.com/evbogue/wttr" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </header>
       <main class="page">
         ${content}
       </main>
@@ -179,18 +182,26 @@ function appShell({
   feedInner = "",
   feedEndpoint = "/feed",
   enableHx = true,
+  showIdentity = false,
+  showCompose = false,
 } = {}) {
   const safeEndpoint = feedEndpoint ? escapeHtml(feedEndpoint) : "";
   const hxAttrs =
     enableHx && feedEndpoint
       ? `data-feed-endpoint="${safeEndpoint}" hx-get="${safeEndpoint}" hx-trigger="load, every 5s, refreshFeed from:body" hx-swap="innerHTML"`
       : "";
-  return `
-    <div id="identity" class="identity"><i>Loading identity...</i></div>
-    <div class="compose-box">
+  const identityBlock = showIdentity
+    ? `<div id="identity" class="identity"><i>Loading identity...</i></div>`
+    : "";
+  const composeBlock = showCompose
+    ? `<div class="compose-box">
       <textarea id="msg" placeholder="What are you doing in this world?"></textarea><br>
       <button id="publishBtn">Publish</button>
-    </div>
+    </div>`
+    : "";
+  return `
+    ${identityBlock}
+    ${composeBlock}
     <div id="feed" class="feed" ${hxAttrs}>
       ${feedInner}
     </div>
@@ -272,7 +283,12 @@ async function renderFeed({
   return htmlResponse(
     renderPage({
       title: heading,
-      content: appShell({ feedInner: feedContent, feedEndpoint: endpoint }),
+      content: appShell({
+        feedInner: feedContent,
+        feedEndpoint: endpoint,
+        showIdentity: false,
+        showCompose: false,
+      }),
     })
   );
 }
@@ -343,6 +359,8 @@ async function renderMessage(hash) {
         feedInner: messageContent,
         feedEndpoint: endpoint,
         enableHx: false,
+        showIdentity: false,
+        showCompose: false,
       }),
     })
   );

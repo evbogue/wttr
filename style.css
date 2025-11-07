@@ -8,7 +8,6 @@ body {
 header {
   background: #1da1f2;
   color: white;
-  text-align: center;
   padding: 14px 0;
   font-size: 24px;
   font-weight: 700;
@@ -16,6 +15,31 @@ header {
   position: sticky;
   top: 0;
   z-index: 10;
+  text-align: center;
+}
+
+.github-link {
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.github-link:hover {
+  text-decoration: underline;
+}
+
+.home-link {
+  color: white;
+  text-decoration: none;
+}
+
+.home-link:hover {
+  text-decoration: underline;
 }
 
 main {
