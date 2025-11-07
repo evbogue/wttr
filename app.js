@@ -8,13 +8,49 @@ const escapeHtml = (str = "") =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-async function getSecretKey() {
-  if (typeof apds.secret === "function") {
-    try {
-      return await apds.secret();
-    } catch {
-      // ignore
+async function ensureKeypair() {
+  async function currentKeypair() {
+    if (typeof apds.keypair === "function") {
+      try {
+        const kp = await apds.keypair();
+        if (kp) return kp;
+      } catch {
+        // ignore
+      }
     }
+    return "";
+  }
+
+  const existing = await currentKeypair();
+  if (existing) return existing;
+
+  const generator =
+    typeof apds.generate === "function"
+      ? apds.generate
+      : typeof apds.generete === "function"
+        ? apds.generete
+        : null;
+
+  if (!generator) return "";
+
+  try {
+    const kp = await generator();
+    if (kp) {
+      await apds.put("keypair", kp);
+      await apds.put("secret", kp.substring(44));
+      return kp;
+    }
+  } catch {
+    // ignore generation failure
+  }
+
+  return "";
+}
+
+async function getSecretKey() {
+  const kp = await ensureKeypair();
+  if (kp?.substring) {
+    return kp.substring(44);
   }
   if (typeof apds.privkey === "function") {
     try {
@@ -28,7 +64,28 @@ async function getSecretKey() {
 
 // --- Avatar behavior (from wiredove) ---
 async function avatarSpan() {
-  const avatarImg = await apds.visual(await apds.pubkey());
+  await ensureKeypair();
+  let pubkey = "";
+  try {
+    pubkey = (await apds.pubkey()) || "";
+  } catch {
+    pubkey = "";
+  }
+
+  let avatarImg = null;
+  if (pubkey && typeof apds.visual === "function") {
+    try {
+      avatarImg = await apds.visual(pubkey);
+    } catch {
+      avatarImg = null;
+    }
+  }
+
+  if (!avatarImg) {
+    avatarImg = new Image();
+    avatarImg.src =
+      "data:image/gif;base64,R0lGODlhAQABAIAAAP///////ywAAAAAAQABAAACAUwAOw==";
+  }
   const existingImage = await apds.get("image");
 
   if (existingImage) {
@@ -81,6 +138,7 @@ async function avatarSpan() {
 async function renderIdentity() {
   const identityRoot = document.getElementById("identity");
   if (!identityRoot) return;
+  await ensureKeypair();
   const name = (await apds.get("name")) || "anon";
   const pubkey = await apds.pubkey();
   const secret = await getSecretKey();
